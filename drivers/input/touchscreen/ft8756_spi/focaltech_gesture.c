@@ -170,12 +170,25 @@ static ssize_t fts_gesture_buf_store(struct device *dev, struct device_attribute
 {
 	return -EPERM;
 }
-
+#if defined (FTS_GESTURE_SYSFS)
+static ssize_t fts_wakeup_seq_show(struct device *dev,
+                                   struct device_attribute *attr, char *buf)
+{
+    struct fts_ts_data *ts_data = fts_data;
+    return sysfs_emit(buf, "%llu\n",
+                      (unsigned long long)atomic64_read(&ts_data->wakeup_seq));
+}
+#endif
 /* sysfs gesture node
  *   read example: cat  fts_gesture_mode       ---read gesture mode
  *   write example:echo 1 > fts_gesture_mode   --- write gesture mode to 1
  *
  */
+
+#if defined (FTS_GESTURE_SYSFS)
+static DEVICE_ATTR_RO(fts_wakeup_seq);
+#endif
+
 static DEVICE_ATTR(fts_gesture_mode, S_IRUGO | S_IWUSR, fts_gesture_show, fts_gesture_store);
 /*
  *   read example: cat fts_gesture_buf        --- read gesture buf
@@ -185,6 +198,9 @@ static DEVICE_ATTR(fts_gesture_buf, S_IRUGO | S_IWUSR, fts_gesture_buf_show, fts
 static struct attribute *fts_gesture_mode_attrs[] = {
 	&dev_attr_fts_gesture_mode.attr,
 	&dev_attr_fts_gesture_buf.attr,
+#if defined (FTS_GESTURE_SYSFS)	
+	&dev_attr_fts_wakeup_seq.attr,
+#endif	
 	NULL,
 };
 
@@ -252,7 +268,13 @@ static void fts_gesture_report(struct input_dev *input_dev, int gesture_id)
 		gesture = KEY_GESTURE_DOWN;
 		break;
 	case GESTURE_DOUBLECLICK:
+#if defined (FTS_GESTURE_SYSFS)	
+		atomic64_inc(&fts_data->wakeup_seq);
+    		sysfs_notify(&fts_data->dev->kobj, NULL, "fts_wakeup_seq");
+    		gesture = -1;
+#else    		
 		gesture = KEY_GESTURE_U;
+#endif
 		break;
 	case GESTURE_O:
 		gesture = KEY_GESTURE_O;
@@ -450,7 +472,9 @@ int fts_gesture_init(struct fts_ts_data *ts_data)
 #ifdef CONFIG_TOUCHSCREEN_COMMON
 	int ret;
 #endif
-
+#if defined (FTS_GESTURE_SYSFS) 
+        atomic64_set(&ts_data->wakeup_seq, 0);
+#endif        
 	FTS_FUNC_ENTER();
 
 	input_dev->event = fts_gesture_switch;

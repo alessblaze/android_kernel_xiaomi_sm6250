@@ -163,6 +163,28 @@ const struct mtk_chip_config spi_ctrdata = {
 };
 #endif
 
+#if defined (NV_SYSFS_NODES)
+static ssize_t nvt_wakeup_seq_show(struct device *dev,
+                                  struct device_attribute *attr, char *buf)
+{
+    struct nvt_ts_data *ts = dev_get_drvdata(dev);
+    return sysfs_emit(buf, "%llu\n",
+            (unsigned long long)atomic64_read(&ts->wakeup_seq));
+}
+
+static DEVICE_ATTR_RO(nvt_wakeup_seq);
+
+static int nvt_create_gesture_sysfs(struct nvt_ts_data *ts)
+{
+    return device_create_file(&ts->client->dev, &dev_attr_nvt_wakeup_seq);
+}
+
+static void nvt_remove_gesture_sysfs(struct nvt_ts_data *ts)
+{
+    device_remove_file(&ts->client->dev, &dev_attr_nvt_wakeup_seq);
+}
+#endif	
+
 static uint8_t bTouchIsAwake = 0;
 
 #if WAKEUP_GESTURE
@@ -1062,7 +1084,12 @@ void nvt_ts_wakeup_gesture_report(uint8_t gesture_id, uint8_t *data)
 			break;
 		case GESTURE_DOUBLE_CLICK:
 			NVT_LOG("Gesture : Double Click.\n");
-			keycode = gesture_key_array[3];
+#if defined(NV_SYSFS_NODES)
+    			atomic64_inc(&ts->wakeup_seq);
+		    	sysfs_notify(&ts->client->dev.kobj, NULL, "nvtwakeupseq");
+#else
+		    	keycode = gesture_key_array[3];
+#endif
 			break;
 		case GESTURE_WORD_Z:
 			NVT_LOG("Gesture : Word-Z.\n");
@@ -1732,7 +1759,9 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 #if ((TOUCH_KEY_NUM > 0) || WAKEUP_GESTURE)
 	int32_t retry = 0;
 #endif
-
+#if defined(NV_SYSFS_NODES)
+	bool sysfs_created = false;
+#endif
 	NVT_LOG("start\n");
 
 	spi_geni_master_dev = NULL;
@@ -1770,6 +1799,13 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 
 	ts->client = client;
 	spi_set_drvdata(client, ts);
+#if defined(NV_SYSFS_NODES)
+	atomic64_set(&ts->wakeup_seq, 0);
+	ret = nvt_create_gesture_sysfs(ts);
+	if (ret)
+	    goto err_create_gesture_sysfs;
+	sysfs_created = true;    
+#endif
 
 	//---prepare for spi parameter---
 	if (ts->client->master->flags & SPI_MASTER_HALF_DUPLEX) {
@@ -2059,6 +2095,10 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 
 	return 0;
 
+err_create_gesture_sysfs:
+	/* sysfs create failed, nothing to remove */
+	goto err_ckeck_full_duplex;   /* or a new label that falls into common cleanup */
+
 err_class_create:
 	class_destroy(ts->nvt_tp_class);
 	ts->nvt_tp_class = NULL;
@@ -2130,6 +2170,10 @@ err_get_regulator:
 #endif
 err_spi_setup:
 err_ckeck_full_duplex:
+#if defined(NV_SYSFS_NODES)
+	if (sysfs_created)
+		nvt_remove_gesture_sysfs(ts);
+#endif
 	spi_set_drvdata(client, NULL);
 #ifdef CHECK_TOUCH_VENDOR
 err_vendor_check:
@@ -2193,7 +2237,9 @@ static int32_t nvt_ts_remove(struct spi_device *client)
 		nvt_fwu_wq = NULL;
 	}
 #endif
-
+#if defined(NV_SYSFS_NODES)
+	nvt_remove_gesture_sysfs(ts);
+#endif
 #if WAKEUP_GESTURE
 	device_init_wakeup(&ts->input_dev->dev, 0);
 #endif
@@ -2274,7 +2320,9 @@ static void nvt_ts_shutdown(struct spi_device *client)
 		nvt_fwu_wq = NULL;
 	}
 #endif
-
+#if defined(NV_SYSFS_NODES)
+	nvt_remove_gesture_sysfs(ts);
+#endif
 #if WAKEUP_GESTURE
 	device_init_wakeup(&ts->input_dev->dev, 0);
 #endif

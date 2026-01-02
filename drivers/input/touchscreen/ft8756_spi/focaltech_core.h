@@ -34,6 +34,7 @@
 /*****************************************************************************
 * Included header files
 *****************************************************************************/
+#include <linux/atomic.h>
 #include <linux/kernel.h>
 #include <linux/device.h>
 #include <linux/i2c.h>
@@ -112,7 +113,7 @@
 #define FTS_REG_SENSIVITY                   0x9D00
 #define FTS_REG_EDGE_FILTER_LEVEL           0x9C00
 #define FTS_REG_EDGE_FILTER_ORIENTATION     0x8C00
-
+#define FTS_GESTURE_SYSFS		    enable
 /*****************************************************************************
 * Private enumerations, structures and unions using typedef
 *****************************************************************************/
@@ -177,6 +178,9 @@ struct fts_ts_data {
 	bool cover_mode;
 	bool charger_mode;
 	bool gesture_mode;	/* gesture enable or disable, default: disable */
+#if defined (FTS_GESTURE_SYSFS)
+	atomic64_t wakeup_seq;
+#endif	
 #ifdef CONFIG_PM
 	bool dev_pm_suspend;
 #endif
